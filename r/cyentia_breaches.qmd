@@ -1,0 +1,417 @@
+---
+title: "Cyentia Breaches Data"
+author: "Joran Elias"
+format: html
+execute:
+  echo: false
+  message: false
+  warnings: false
+---
+
+```{r}
+#| label: setup
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(skimr)
+  library(ggrepel)
+  library(patchwork)
+  library(quantreg)
+  library(broom)
+  library(gt)
+})
+
+theme_set(theme_bw())
+
+breaches <- readr::read_csv(
+  file = "../input/sample_breaches.csv",
+  show_col_types = FALSE
+) |>
+  tidyr::separate(
+    col = "cause",
+    into = c("internal_external", "cause"),
+    sep = " - "
+  ) |>
+  mutate(breach_year = lubridate::year(breach_date)) |>
+  mutate(across(starts_with("naic"), as.character))
+```
+
+### Data Summary
+
+The `skimr` package provides a convenient, quick overview of the data.
+
+```{r}
+#| label: summary
+#| echo: true
+breaches_skim <- skimr::skim(breaches, -c(id, breach_year))
+breaches_skim
+```
+
+A few things immediately stand out:
+
+* `affected_count` & `total_amount` are extremely skewed and there are breaches 
+that apparently impacted zero records and had zero dollar cost (`r scales::percent_format(accuracy = 0.1)(with(breaches,mean(affected_count == 0)))` of all breaches)
+* `sector` & `cause` both are missing in some cases
+
+Additionally, there is a near equal distribution of breaches by `cause` and by `year`:
+
+:::: {.columns}
+::: {.column}
+```{r cause_dist}
+# With the exception of Other, there are ~700 breaches for each
+# cause
+breaches |>
+  summarise(
+    n = n(),
+    .by = "cause"
+  ) |>
+  arrange(desc(n))
+```
+:::
+
+::: {.column}
+```{r year_dist}
+# There are exactly 10k records in the file and nearly 1k breach records
+# per year, which seems suspiciously even
+breaches |>
+  summarise(
+    n = n(),
+    .by = "breach_year"
+  ) |>
+  arrange(breach_year)
+```
+:::
+::::
+
+This makes me wonder if the distribution of the raw number of breaches by `cause` 
+over time are representative samples or if they're an artificially balanced subsample from a 
+larger data set. As a result, I suspect that comparisons of simple counts of 
+breaches over time or the number breaches between different `cause`s will be 
+unlikely to show significant differences.
+
+### Breach Cost vs Affected Records by NAIC Sector
+First we look at potential differences between NAIC sectors with respect to:
+
+* Percent of breaches with nonzero cost/affected records
+* Number of breaches with nonzero cost/affected records
+* Relationship between breach cost & number of affected records
+
+```{r}
+#| label: cost_vs_records
+#| fig-width: 12
+#| fig-height: 7
+# Amt vs Records for breaches with >0 impact
+amt_vs_rec <- breaches |>
+  filter(total_amount > 0 & affected_count > 0) |>
+  summarise(
+    n_breaches = n(),
+    med_amt = median(total_amount, na.rm = TRUE),
+    med_rec = median(affected_count, na.rm = TRUE),
+    .by = "sector"
+  ) |>
+  tidyr::replace_na(replace = list(sector = "Unknown"))
+
+p1 <- ggplot(
+  data = amt_vs_rec,
+  aes(x = med_rec, y = med_amt, size = n_breaches)
+) +
+  geom_point(color = "darkblue") +
+  geom_text_repel(aes(label = sector, size = NULL)) +
+  scale_y_continuous(labels = scales::dollar_format(scale = 0.001, suffix = "K")) +
+  ggtitle(
+    label = "Breach cost vs afftected records by NAIC sector",
+    subtitle = "Only breaches with nonzero cost are included"
+  ) +
+  labs(
+    x = "Median records affected",
+    y = "Median Cost",
+    size = "# of nonzero cost breaches"
+  ) +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom", plot.title = element_text(vjust = 3.5)
+  )
+
+prop_zero_cost <- breaches |>
+  summarise(
+    prop0 = mean(total_amount == 0),
+    .by = "sector"
+  ) |>
+  tidyr::replace_na(replace = list(sector = "Unknown")) |>
+  arrange(prop0) |>
+  mutate(sector = fct_inorder(sector))
+
+p2 <- ggplot(data = prop_zero_cost, aes(x = sector, y = prop0)) +
+  geom_segment(aes(x = sector, xend = sector, y = 0, yend = prop0), color = "grey") +
+  geom_point(color = "darkblue", size = 3) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  ggtitle(label = "% of breaches with\nzero affected records") +
+  labs(x = NULL, y = "Percent") +
+  coord_flip() +
+  theme(panel.grid = element_blank())
+
+p1 + p2 + plot_layout(widths = c(2, 1))
+```
+
+The Healthcare, Financial, Administrative, Education & Professional sectors 
+appear to be the biggest targets, with the most breaches.
+
+The Agriculture & Transportation sectors appear to have breaches that tend to incur
+much higher costs than other sectors, relative to the number of affected records.
+
+The Other sector tends to have breaches that incur average costs but involve much
+higher than normal numbers of records. The breaches in this sector appear to be 
+dominated by organizations like:
+
+* Civic & Social Orgs (alumni assoc, ethnic assoc, PTAs, veterans assoc)
+* Social Advocacy Orgs 
+* Business & Professional Orgs (lawyer/doctor/dentist orgs, trade groups, chambers of commerce)
+
+These are all organizations that likely store large amounts of member information but 
+may not see themselves as likely cyberattack targets, or may have extremely 
+limited IT security resources at their disposal.
+
+### Cost Per Breach by Cause
+Evaluating the cost per breach is complicated by its skewed nature. There are 
+a significant number of breaches with zero cost and the occassional breach with
+extremely large costs. We'd like to convey both what a "typical" risk is and also
+what the extreme end of the risk may be. To do this, we can show a scatterplot
+of the 50th & 99th quantiles by breach cause.
+
+```{r}
+#| label: cost_per_breach
+cost_per_breach <- breaches |>
+  summarise(
+    q_mid = quantile(total_amount, 0.5),
+    q_hi = quantile(total_amount, 0.99),
+    .by = c("cause")
+  ) |>
+  tidyr::replace_na(replace = list(cause = "Unknown"))
+
+ggplot(data = cost_per_breach, aes(x = q_mid, y = q_hi)) +
+  geom_point(color = "darkblue") +
+  geom_text_repel(aes(label = cause)) +
+  scale_x_continuous(labels = scales::dollar_format()) +
+  scale_y_continuous(labels = scales::dollar_format(scale = 0.001, suffix = "K")) +
+  ggtitle(label = "Median vs Extreme Breach Cost by Cause") +
+  labs(
+    x = "Median Breach Cost",
+    y = "99th Percentile Cost"
+  )
+```
+
+Breaches caused by criminal organizations & former consultants have some of the 
+highest median costs per breach, but are less likely to generate extremely high
+cost breaches compared to other causes.
+
+Beaches caused by employees or former employees have somewhat lower median costs
+per breach, but the risk of an extremely expensive breach from these sources
+is considerably higher.
+
+### Trends in Breach Cost by Cause
+Because the breach cost variable `total_amount` is so heavily skewed, we will 
+estimate trends of quantiles, again focusing on an estimate of the "typical"
+cost (median) as well as an "extreme" cost (95%-tile).
+
+To do this we fit a linear quantile regression model: 
+
+$$
+log(totalamount + 1) = \beta_0 + \beta_1 breachdate + \beta_2 cause + \beta_3(breachdate*cause)
+$$
+
+This means that the breach cause specific trend estimate is the sum $\beta_1 + \beta_3$ for each
+`cause`.
+
+```{r}
+#| label: quantile-reg
+#| cache: true
+# Helper function for bootstrapping CIs
+cause_coef <- function(model) {
+  coef(model) |>
+    as.data.frame() |>
+    tibble::rownames_to_column(var = "term") |>
+    filter(grepl("^breach_date", term)) |>
+    set_names(nm = c("term", "0.5", "0.95")) |>
+    pivot_longer(cols = -c(term), names_to = "tau", values_to = "estimate") |>
+    group_by(tau) |>
+    mutate(estimate = estimate + estimate[term == "breach_date"]) |>
+    ungroup() |>
+    filter(term != "breach_date")
+}
+
+# Fill in NAs and log transform total_amount
+breaches_reg <- breaches |>
+  tidyr::replace_na(replace = list(sector = "Unknown", cause = "Unknown")) |>
+  mutate(log_total_amount = log(total_amount + 1))
+
+# Quantile regression model
+m <- rq(log_total_amount ~ breach_date + cause + breach_date:cause,
+  tau = c(0.5, 0.95),
+  data = breaches_reg
+)
+
+# Sort of crude bootstrapped CIs for the cause-specific slope
+bs_ci <- vector(mode = "list", length = 1000)
+for (i in seq_along(bs_ci)) {
+  suppressWarnings({
+    m_i <- rq(log_total_amount ~ breach_date + cause + breach_date:cause,
+      tau = c(0.5, 0.95),
+      data = breaches_reg[sample(10000, 10000, replace = TRUE), ]
+    )
+  })
+  bs_ci[[i]] <- cause_coef(m_i)
+}
+bs_ci <- bind_rows(bs_ci)
+ci <- bs_ci |>
+  summarise(
+    lo = quantile(estimate, 0.025),
+    hi = quantile(estimate, 0.975),
+    .by = c("term", "tau")
+  )
+
+# Fitted values for plotting
+m_aug <- augment(m)
+
+# Model
+m_tidy <- tidy(m)
+m_tidy_cause <- m_tidy |>
+  mutate(tau = as.character(tau)) |>
+  filter(grepl("breach_date", term)) |>
+  group_by(tau) |>
+  mutate(estimate = estimate + estimate[term == "breach_date"]) |>
+  ungroup() |>
+  select(term, tau, estimate) |>
+  filter(term != "breach_date")
+```
+
+#### Coefficient Summary
+
+The resulting trend estimates are summarised in the plot and table below.
+
+:::: {.columns}
+::: {.column}
+```{r}
+#| label: coef-summary-plt
+#| fig-height: 13.5
+#| fig-width: 8
+cause_coefs <- left_join(
+  m_tidy_cause |> mutate(tau = as.character(tau)),
+  ci,
+  by = c("term", "tau")
+) |>
+  mutate(term = gsub("^breach_date:cause", "", term)) |>
+  mutate(across(where(is.numeric), ~ .x * 365.25)) |>
+  arrange(desc(term)) |>
+  mutate(term = fct_inorder(term))
+
+ggplot(
+  data = cause_coefs,
+  aes(x = term, y = estimate, color = tau)
+) +
+  geom_hline(yintercept = 0) +
+  geom_pointrange(aes(ymin = lo, ymax = hi),
+    size = 0.3,
+    linewidth = 0.8,
+    position = position_dodge(width = 1)
+  ) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_color_brewer(palette = "Set1") +
+  labs(
+    x = NULL,
+    y = NULL,
+    color = "Cost Quantile"
+  ) +
+  coord_flip() +
+  theme(
+    legend.position = "top",
+    legend.direction = "horizontal",
+    axis.text = element_text(size = 16),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14)
+  )
+```
+:::
+
+::: {.column}
+```{r}
+#| label: coef-summary-tbl
+
+cause_coefs <- left_join(
+  m_tidy_cause |> mutate(tau = as.character(tau)),
+  ci,
+  by = c("term", "tau")
+)
+
+cause_coefs |>
+  mutate(term = gsub("^breach_date:cause", "", term)) |>
+  mutate(across(where(is.numeric), ~ .x * 365.25)) |>
+  mutate(across(where(is.numeric), ~ scales::percent_format(accuracy = 0.1)(.x))) |>
+  mutate(est_lbl = paste(estimate, paste0("(", lo, ",", hi, ")"))) |>
+  select(term, tau, est_lbl) |>
+  mutate(tau = paste("Quantile:", tau)) |>
+  pivot_wider(names_from = tau, values_from = est_lbl) |>
+  gt() |>
+  tab_options(table.font.size = pct(65), table.width = pct(80)) |>
+  tab_header(
+    title = "Avg Annual % Change in Breach Cost",
+    subtitle = "Estimated change in median & 95%-tile total breach cost."
+  ) |>
+  cols_label(term = "Cause") |>
+  tab_style(locations = cells_title(), style = cell_text(align = "left")) |>
+  tab_style(
+    locations = cells_body(columns = 2, rows = 3),
+    style = cell_text(style = "italic", weight = "bold")
+  ) |>
+  tab_style(
+    locations = cells_body(columns = 3, rows = 8),
+    style = cell_text(style = "italic", weight = "bold")
+  ) |>
+  tab_style(
+    locations = cells_body(columns = 2, rows = 1),
+    style = cell_text(style = "italic")
+  ) |>
+  tab_style(
+    locations = cells_body(columns = 3, rows = 5:7),
+    style = cell_text(style = "italic")
+  )
+```
+:::
+::::
+
+Only two `cause` specific trends in breach cost appear statistically significant:
+
+* Median breach cost caused by Former Consultants has decreased at an average rate of `-12.3%` per year
+* The 95%-tile breach cost with a cause of Other has increased at an average rate of `16.2%` per year
+
+While the remaining trends don't appear statistically significant, several of the 
+estimated trends are fairly large. These include large estimated growth rates in the
+95%-tile breach cost caused by Nation States, Hacktivists & Organizations.
+
+
+#### Examples of Causes with large 95%-tile changes
+Finally, we can visualize some of the larger trend estimates, on a log scale.
+```{r}
+#| label: estimated-quantile-plt
+#| fig-height: 8
+#| fig-width: 8
+m_aug |>
+  filter(cause %in% c("Other", "Hacktivist", "Nation State", "Organization", "Former Consultant")) |>
+  ggplot(data = _, aes(x = breach_date)) +
+  facet_wrap(~cause, ncol = 2) +
+  geom_point(aes(y = log_total_amount), alpha = 0.1) +
+  geom_line(aes(y = .fitted, color = .tau), linewidth = 1.2) +
+  labs(x = NULL, y = "log(Breach Cost)", color = "Quantile") +
+  theme(legend.direction = "horizontal", legend.position = "bottom")
+```
+
+### Further Questions
+
+* Explore various missing & unknown features in the data
+  + What is the cause of missingness in `sector` & `cause`? 
+  Are some types of breaches more likely than others to have missing data here?
+  + What comprises the `Other` breach cause, as it appeared to be growing?
+* I've looked at `sector` & `cause` separately here, but it would be interesting to
+look for potential interactions between the two, with respect to breach frequency
+and severity (cost).
+* Look closer at differences between breaches that involve zero cost/no affected
+records and those that do. Can we distinguish any risk factors that might separate
+the two?
