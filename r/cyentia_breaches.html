@@ -135,7 +135,7 @@ code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warni
 
 </div>
 <section id="data-summary" class="level3">
-<h3 class="anchored" data-anchor-id="data-summary">Data Summary</h3>
+<h3 class="anchored" data-anchor-id="data-summary">Data summary</h3>
 <p>The <code>skimr</code> package provides a convenient, quick overview of the data.</p>
 <div class="cell">
 <div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>breaches_skim <span class="ot">&lt;-</span> skimr<span class="sc">::</span><span class="fu">skim</span>(breaches, <span class="sc">-</span><span class="fu">c</span>(id, breach_year))</span>
@@ -358,7 +358,7 @@ code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warni
 </table>
 </div>
 </div>
-<p>A few things immediately stand out:</p>
+<p>A few things stand out:</p>
 <ul>
 <li><code>affected_count</code> &amp; <code>total_amount</code> are extremely skewed and there are breaches that apparently impacted zero records and had zero dollar cost (13.7% of all breaches)</li>
 <li><code>sector</code> &amp; <code>cause</code> both are missing in some cases</li>
@@ -406,10 +406,10 @@ code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warni
 </div>
 </div>
 </div>
-<p>This makes me wonder if the distribution of the raw number of breaches by <code>cause</code> over time are representative samples or if they’re an artificially balanced subsample from a larger data set. As a result, I suspect that comparisons of simple counts of breaches over time or the number breaches between different <code>cause</code>s will be unlikely to show significant differences.</p>
+<p>This makes me wonder if the distribution of the raw number of breaches by <code>cause</code> and over time are representative samples or if they’re an artificially balanced subsample from a larger data set. As a result, I suspect that comparisons of simple counts of breaches over time or the number breaches between different <code>cause</code> will be unlikely to show significant differences.</p>
 </section>
 <section id="breach-cost-vs-affected-records-by-naic-sector" class="level3">
-<h3 class="anchored" data-anchor-id="breach-cost-vs-affected-records-by-naic-sector">Breach Cost vs Affected Records by NAIC Sector</h3>
+<h3 class="anchored" data-anchor-id="breach-cost-vs-affected-records-by-naic-sector">Breach cost vs affected records by NAIC sector</h3>
 <p>First we look at potential differences between NAIC sectors with respect to:</p>
 <ul>
 <li>Percent of breaches with nonzero cost/affected records</li>
@@ -430,31 +430,33 @@ code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warni
 <li>Business &amp; Professional Orgs (lawyer/doctor/dentist orgs, trade groups, chambers of commerce)</li>
 </ul>
 <p>These are all organizations that likely store large amounts of member information but may not see themselves as likely cyberattack targets, or may have extremely limited IT security resources at their disposal.</p>
+<p>Most of the sectors have roughly similar proportions of breaches with zero affected records, with the exception of Entertainment, Utilities &amp; Agriculture.</p>
 </section>
 <section id="cost-per-breach-by-cause" class="level3">
-<h3 class="anchored" data-anchor-id="cost-per-breach-by-cause">Cost Per Breach by Cause</h3>
-<p>Evaluating the cost per breach is complicated by its skewed nature. There are a significant number of breaches with zero cost and the occassional breach with extremely large costs. We’d like to convey both what a “typical” risk is and also what the extreme end of the risk may be. To do this, we can show a scatterplot of the 50th &amp; 99th quantiles by breach cause.</p>
+<h3 class="anchored" data-anchor-id="cost-per-breach-by-cause">Cost per breach by cause</h3>
+<p>Evaluating the cost per breach is complicated by its skewed nature. There are a significant number of breaches with zero cost and the occasional breach with extremely large costs. We’d like to convey both what a “typical” risk is and also what the extreme end of the risk may be. To do this, we can show a scatterplot of the 50th &amp; 99th quantiles by breach cause.</p>
 <div class="cell">
 <div class="cell-output-display">
 <p><img src="cyentia_breaches_files/figure-html/cost_per_breach-1.png" class="img-fluid" width="672"></p>
 </div>
 </div>
-<p>Breaches caused by criminal organizations &amp; former consultants have some of the highest median costs per breach, but are less likely to generate extremely high cost breaches compared to other causes.</p>
-<p>Beaches caused by employees or former employees have somewhat lower median costs per breach, but the risk of an extremely expensive breach from these sources is considerably higher.</p>
+<p>Breaches caused by former consultant have some of the highest median costs per breach, but appear less likely to generate extremely high cost breaches compared to other causes.</p>
+<p>Beaches caused by employees, former employees or trusted third parties have somewhat lower median costs, but the risk of an extremely expensive breach from these sources is considerably higher.</p>
+<p>Hacktivist breaches are arguably the worst, as they have relatively high median <em>and</em> extreme breach costs.</p>
 </section>
 <section id="trends-in-breach-cost-by-cause" class="level3">
-<h3 class="anchored" data-anchor-id="trends-in-breach-cost-by-cause">Trends in Breach Cost by Cause</h3>
-<p>Because the breach cost variable <code>total_amount</code> is so heavily skewed, we will estimate trends of quantiles, again focusing on an estimate of the “typical” cost (median) as well as an “extreme” cost (95%-tile).</p>
-<p>To do this we fit a linear quantile regression model:</p>
+<h3 class="anchored" data-anchor-id="trends-in-breach-cost-by-cause">Trends in breach cost by cause</h3>
+<p>Again, because the breach cost variable <code>total_amount</code> is so heavily skewed, we will estimate trends of quantiles, again focusing on an estimate of the “typical” cost (median) as well as an “extreme” cost (95%-tile).</p>
+<p>One option for accomplishing this is to fit a linear quantile regression model on the log transformed breach cost:</p>
 <p><span class="math display">\[
-log(totalamount + 1) = \beta_0 + \beta_1 breachdate + \beta_2 cause + \beta_3(breachdate*cause)
+log(total\_amount + 1) = \beta_0 + \beta_1 breach\_date + \beta_2 cause + \beta_3(breach\_date*cause)
 \]</span></p>
-<p>This means that the breach cause specific trend estimate is the sum <span class="math inline">\(\beta_1 + \beta_3\)</span> for each <code>cause</code>.</p>
+<p>Quantile regression models estimate the conditional quantiles of the response variable instead of the conditional mean, as in a traditional linear model. In this case the breach cause specific trend estimate is the sum of the coefficients <span class="math inline">\(\beta_1 + \beta_3\)</span> for each <code>cause</code>.</p>
 <div class="cell" data-hash="cyentia_breaches_cache/html/quantile-reg_2270aacfef350eef2a4bd2ff7aede53b">
 
 </div>
 <section id="coefficient-summary" class="level4">
-<h4 class="anchored" data-anchor-id="coefficient-summary">Coefficient Summary</h4>
+<h4 class="anchored" data-anchor-id="coefficient-summary">Coefficient summary</h4>
 <p>The resulting trend estimates are summarised in the plot and table below.</p>
 <div class="columns">
 <div class="column">
@@ -923,29 +925,29 @@ log(totalamount + 1) = \beta_0 + \beta_1 breachdate + \beta_2 cause + \beta_3(br
   </thead>
   <tbody class="gt_table_body">
     <tr><td headers="term" class="gt_row gt_left">Criminal Organization</td>
-<td headers="Quantile: 0.5" class="gt_row gt_right" style="font-style: italic;">-7.5% (-18.5%,0.9%)</td>
+<td headers="Quantile: 0.5" class="gt_row gt_right" style="color: #FF8C00; font-style: italic;">-7.5% (-18.5%,0.9%)</td>
 <td headers="Quantile: 0.95" class="gt_row gt_right">-3.8% (-19.5%,18.6%)</td></tr>
     <tr><td headers="term" class="gt_row gt_left">Employee</td>
 <td headers="Quantile: 0.5" class="gt_row gt_right">1.0% (-8.4%,11.1%)</td>
 <td headers="Quantile: 0.95" class="gt_row gt_right">-0.7% (-20.5%,22.5%)</td></tr>
     <tr><td headers="term" class="gt_row gt_left">Former Consultant</td>
-<td headers="Quantile: 0.5" class="gt_row gt_right" style="font-style: italic; font-weight: bold;">-12.3% (-22.7%,-0.4%)</td>
+<td headers="Quantile: 0.5" class="gt_row gt_right" style="color: #FF8C00; font-style: italic; font-weight: bold;">-12.3% (-22.7%,-0.4%)</td>
 <td headers="Quantile: 0.95" class="gt_row gt_right">2.0% (-10.9%,18.0%)</td></tr>
     <tr><td headers="term" class="gt_row gt_left">Former Employee</td>
 <td headers="Quantile: 0.5" class="gt_row gt_right">4.1% (-4.8%,14.0%)</td>
 <td headers="Quantile: 0.95" class="gt_row gt_right">-1.5% (-19.9%,11.6%)</td></tr>
     <tr><td headers="term" class="gt_row gt_left">Hacktivist</td>
 <td headers="Quantile: 0.5" class="gt_row gt_right">0.6% (-11.0%,8.6%)</td>
-<td headers="Quantile: 0.95" class="gt_row gt_right" style="font-style: italic;">10.6% (-5.4%,31.6%)</td></tr>
+<td headers="Quantile: 0.95" class="gt_row gt_right" style="color: #FF8C00; font-style: italic;">10.6% (-5.4%,31.6%)</td></tr>
     <tr><td headers="term" class="gt_row gt_left">Nation State</td>
 <td headers="Quantile: 0.5" class="gt_row gt_right">-3.1% (-18.3%,8.4%)</td>
-<td headers="Quantile: 0.95" class="gt_row gt_right" style="font-style: italic;">8.1% (-12.2%,20.7%)</td></tr>
+<td headers="Quantile: 0.95" class="gt_row gt_right" style="color: #FF8C00; font-style: italic;">8.1% (-12.2%,20.7%)</td></tr>
     <tr><td headers="term" class="gt_row gt_left">Organization</td>
 <td headers="Quantile: 0.5" class="gt_row gt_right">-1.5% (-8.4%,10.0%)</td>
-<td headers="Quantile: 0.95" class="gt_row gt_right" style="font-style: italic;">12.4% (-10.4%,30.1%)</td></tr>
+<td headers="Quantile: 0.95" class="gt_row gt_right" style="color: #FF8C00; font-style: italic;">12.4% (-10.4%,30.1%)</td></tr>
     <tr><td headers="term" class="gt_row gt_left">Other</td>
 <td headers="Quantile: 0.5" class="gt_row gt_right">3.0% (-4.0%,11.6%)</td>
-<td headers="Quantile: 0.95" class="gt_row gt_right" style="font-style: italic; font-weight: bold;">16.2% (0.0%,23.5%)</td></tr>
+<td headers="Quantile: 0.95" class="gt_row gt_right" style="color: #FF8C00; font-style: italic; font-weight: bold;">16.2% (0.0%,23.5%)</td></tr>
     <tr><td headers="term" class="gt_row gt_left">Terrorist</td>
 <td headers="Quantile: 0.5" class="gt_row gt_right">-4.4% (-14.1%,5.3%)</td>
 <td headers="Quantile: 0.95" class="gt_row gt_right">0.2% (-22.4%,14.8%)</td></tr>
@@ -974,8 +976,8 @@ log(totalamount + 1) = \beta_0 + \beta_1 breachdate + \beta_2 cause + \beta_3(br
 </ul>
 <p>While the remaining trends don’t appear statistically significant, several of the estimated trends are fairly large. These include large estimated growth rates in the 95%-tile breach cost caused by Nation States, Hacktivists &amp; Organizations.</p>
 </section>
-<section id="examples-of-causes-with-large-95-tile-changes" class="level4">
-<h4 class="anchored" data-anchor-id="examples-of-causes-with-large-95-tile-changes">Examples of Causes with large 95%-tile changes</h4>
+<section id="examples-of-breach-causes-with-large-95-tile-changes" class="level4">
+<h4 class="anchored" data-anchor-id="examples-of-breach-causes-with-large-95-tile-changes">Examples of breach causes with large 95%-tile changes</h4>
 <p>Finally, we can visualize some of the larger trend estimates, on a log scale.</p>
 <div class="cell">
 <div class="cell-output-display">
@@ -985,7 +987,7 @@ log(totalamount + 1) = \beta_0 + \beta_1 breachdate + \beta_2 cause + \beta_3(br
 </section>
 </section>
 <section id="further-questions" class="level3">
-<h3 class="anchored" data-anchor-id="further-questions">Further Questions</h3>
+<h3 class="anchored" data-anchor-id="further-questions">Further questions</h3>
 <ul>
 <li>Explore various missing &amp; unknown features in the data
 <ul>

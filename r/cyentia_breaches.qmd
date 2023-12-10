@@ -35,7 +35,7 @@ breaches <- readr::read_csv(
   mutate(across(starts_with("naic"), as.character))
 ```
 
-### Data Summary
+### Data summary
 
 The `skimr` package provides a convenient, quick overview of the data.
 
@@ -46,7 +46,7 @@ breaches_skim <- skimr::skim(breaches, -c(id, breach_year))
 breaches_skim
 ```
 
-A few things immediately stand out:
+A few things stand out:
 
 * `affected_count` & `total_amount` are extremely skewed and there are breaches 
 that apparently impacted zero records and had zero dollar cost (`r scales::percent_format(accuracy = 0.1)(with(breaches,mean(affected_count == 0)))` of all breaches)
@@ -83,12 +83,12 @@ breaches |>
 ::::
 
 This makes me wonder if the distribution of the raw number of breaches by `cause` 
-over time are representative samples or if they're an artificially balanced subsample from a 
-larger data set. As a result, I suspect that comparisons of simple counts of 
-breaches over time or the number breaches between different `cause`s will be 
+and over time are representative samples or if they're an artificially balanced 
+subsample from a larger data set. As a result, I suspect that comparisons of simple counts of 
+breaches over time or the number breaches between different `cause` will be 
 unlikely to show significant differences.
 
-### Breach Cost vs Affected Records by NAIC Sector
+### Breach cost vs affected records by NAIC sector
 First we look at potential differences between NAIC sectors with respect to:
 
 * Percent of breaches with nonzero cost/affected records
@@ -156,7 +156,7 @@ The Healthcare, Financial, Administrative, Education & Professional sectors
 appear to be the biggest targets, with the most breaches.
 
 The Agriculture & Transportation sectors appear to have breaches that tend to incur
-much higher costs than other sectors, relative to the number of affected records.
+much higher costs than other sectors, relative to the number of affected records. 
 
 The Other sector tends to have breaches that incur average costs but involve much
 higher than normal numbers of records. The breaches in this sector appear to be 
@@ -170,9 +170,12 @@ These are all organizations that likely store large amounts of member informatio
 may not see themselves as likely cyberattack targets, or may have extremely 
 limited IT security resources at their disposal.
 
-### Cost Per Breach by Cause
+Most of the sectors have roughly similar proportions of breaches with zero
+affected records, with the exception of Entertainment, Utilities & Agriculture.
+
+### Cost per breach by cause
 Evaluating the cost per breach is complicated by its skewed nature. There are 
-a significant number of breaches with zero cost and the occassional breach with
+a significant number of breaches with zero cost and the occasional breach with
 extremely large costs. We'd like to convey both what a "typical" risk is and also
 what the extreme end of the risk may be. To do this, we can show a scatterplot
 of the 50th & 99th quantiles by breach cause.
@@ -182,7 +185,7 @@ of the 50th & 99th quantiles by breach cause.
 cost_per_breach <- breaches |>
   summarise(
     q_mid = quantile(total_amount, 0.5),
-    q_hi = quantile(total_amount, 0.99),
+    q_hi = quantile(total_amount, 0.95),
     .by = c("cause")
   ) |>
   tidyr::replace_na(replace = list(cause = "Unknown"))
@@ -195,31 +198,37 @@ ggplot(data = cost_per_breach, aes(x = q_mid, y = q_hi)) +
   ggtitle(label = "Median vs Extreme Breach Cost by Cause") +
   labs(
     x = "Median Breach Cost",
-    y = "99th Percentile Cost"
+    y = "95th Percentile Cost"
   )
 ```
 
-Breaches caused by criminal organizations & former consultants have some of the 
-highest median costs per breach, but are less likely to generate extremely high
+Breaches caused by former consultant have some of the 
+highest median costs per breach, but appear less likely to generate extremely high
 cost breaches compared to other causes.
 
-Beaches caused by employees or former employees have somewhat lower median costs
-per breach, but the risk of an extremely expensive breach from these sources
+Beaches caused by employees, former employees or trusted third parties have 
+somewhat lower median costs, but the risk of an extremely expensive breach from these sources
 is considerably higher.
 
-### Trends in Breach Cost by Cause
-Because the breach cost variable `total_amount` is so heavily skewed, we will 
+Hacktivist breaches are arguably the worst, as they have relatively high median 
+*and* extreme breach costs.
+
+### Trends in breach cost by cause
+Again, because the breach cost variable `total_amount` is so heavily skewed, we will 
 estimate trends of quantiles, again focusing on an estimate of the "typical"
 cost (median) as well as an "extreme" cost (95%-tile).
 
-To do this we fit a linear quantile regression model: 
+One option for accomplishing this is to fit a linear quantile regression model 
+on the log transformed breach cost: 
 
 $$
-log(totalamount + 1) = \beta_0 + \beta_1 breachdate + \beta_2 cause + \beta_3(breachdate*cause)
+log(total\_amount + 1) = \beta_0 + \beta_1 breach\_date + \beta_2 cause + \beta_3(breach\_date*cause)
 $$
 
-This means that the breach cause specific trend estimate is the sum $\beta_1 + \beta_3$ for each
-`cause`.
+Quantile regression models estimate the conditional quantiles of the response variable 
+instead of the conditional mean, as in a traditional linear model. In this case the 
+breach cause specific trend estimate is the sum of the coefficients $\beta_1 + \beta_3$ 
+for each `cause`.
 
 ```{r}
 #| label: quantile-reg
@@ -283,7 +292,7 @@ m_tidy_cause <- m_tidy |>
   filter(term != "breach_date")
 ```
 
-#### Coefficient Summary
+#### Coefficient summary
 
 The resulting trend estimates are summarised in the plot and table below.
 
@@ -359,19 +368,19 @@ cause_coefs |>
   tab_style(locations = cells_title(), style = cell_text(align = "left")) |>
   tab_style(
     locations = cells_body(columns = 2, rows = 3),
-    style = cell_text(style = "italic", weight = "bold")
+    style = cell_text(style = "italic", weight = "bold",color = "darkorange")
   ) |>
   tab_style(
     locations = cells_body(columns = 3, rows = 8),
-    style = cell_text(style = "italic", weight = "bold")
+    style = cell_text(style = "italic", weight = "bold",color = "darkorange")
   ) |>
   tab_style(
     locations = cells_body(columns = 2, rows = 1),
-    style = cell_text(style = "italic")
+    style = cell_text(style = "italic",color = "darkorange")
   ) |>
   tab_style(
     locations = cells_body(columns = 3, rows = 5:7),
-    style = cell_text(style = "italic")
+    style = cell_text(style = "italic",color = "darkorange")
   )
 ```
 :::
@@ -387,7 +396,7 @@ estimated trends are fairly large. These include large estimated growth rates in
 95%-tile breach cost caused by Nation States, Hacktivists & Organizations.
 
 
-#### Examples of Causes with large 95%-tile changes
+#### Examples of breach causes with large 95%-tile changes
 Finally, we can visualize some of the larger trend estimates, on a log scale.
 ```{r}
 #| label: estimated-quantile-plt
@@ -399,11 +408,12 @@ m_aug |>
   facet_wrap(~cause, ncol = 2) +
   geom_point(aes(y = log_total_amount), alpha = 0.1) +
   geom_line(aes(y = .fitted, color = .tau), linewidth = 1.2) +
+  scale_color_brewer(palette = "Set1") +
   labs(x = NULL, y = "log(Breach Cost)", color = "Quantile") +
   theme(legend.direction = "horizontal", legend.position = "bottom")
 ```
 
-### Further Questions
+### Further questions
 
 * Explore various missing & unknown features in the data
   + What is the cause of missingness in `sector` & `cause`? 
