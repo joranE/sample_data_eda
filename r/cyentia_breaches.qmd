@@ -178,7 +178,7 @@ Evaluating breach cost is complicated by its skewed nature. There are
 a significant number of breaches with zero cost and the occasional breach with
 extremely large costs. We'd like to convey both what a "typical" risk is and also
 what the extreme end of the risk may be. To do this, we can show a scatterplot
-of the 50th & 99th quantiles by breach cause.
+of the 50th & 95th quantiles by breach cause.
 
 ```{r}
 #| label: cost_per_breach
